@@ -1,4 +1,4 @@
-name: Hello World workflow
+name: Hello World workflows
 
 on:
   # workflow_dispatch option enables manual trigger button
