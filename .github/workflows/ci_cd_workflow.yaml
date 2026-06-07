@@ -7,6 +7,7 @@ env:
   ECR_REPOSITORY: sentiment-app-onnx
 
 jobs:
+
   integration:
     name: checks_and_tests
     runs-on: ubuntu-latest
@@ -80,3 +81,38 @@ jobs:
           docker build -t $REPOSITORY:$IMAGE_TAG .
           docker tag $REPOSITORY:$IMAGE_TAG $REGISTRY/$REPOSITORY:$IMAGE_TAG
           docker push $REGISTRY/$REPOSITORY:$IMAGE_TAG
+
+      - name: Delete stack if in rollback state
+        run: bash scripts/recover_rollback.sh
+        env:
+          STACK_NAME: sentiment-app-stack
+          AWS_REGION: ${{ env.AWS_REGION }}
+
+      - name: Resolve Lambda role ARN from name
+        id: lambda_role
+        run: bash scripts/resolve_lambda_role.sh
+        env:
+          ROLE_NAME: LabRole
+
+      - name: Deploy with AWS SAM
+        run: bash scripts/sam_deploy.sh
+        env:
+          STACK_NAME: sentiment-app-stack
+          AWS_REGION: ${{ env.AWS_REGION }}
+          IMAGE_REPOSITORY: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}
+          IMAGE_URI: ${{ steps.login-ecr.outputs.registry }}/${{ env.ECR_REPOSITORY }}:${{ github.sha }}
+          LAMBDA_ROLE_ARN: ${{ steps.lambda_role.outputs.role_arn }}
+
+      - name: Verify deployed API
+        run: |
+          API_URL=$(aws cloudformation describe-stacks \
+            --stack-name sentiment-app-stack \
+            --region ${{ env.AWS_REGION }} \
+            --query "Stacks[0].Outputs[?OutputKey=='ApiUrl'].OutputValue" \
+            --output text)
+
+          echo "API URL: $API_URL"
+
+          curl -X POST "$API_URL" \
+            -H "Content-Type: application/json" \
+            -d '{"text": "MLOps is amazing!"}'
